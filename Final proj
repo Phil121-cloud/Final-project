@@ -1,0 +1,330 @@
+
+
+import json
+import os
+import random
+import tkinter as tk
+from tkinter import messagebox, simpledialog, filedialog
+
+
+# ---------- Config & Defaults ----------
+WORD_BANK_FILE = 'wordbank.json'
+HIGHSCORE_FILE = 'highscores.json'
+DEFAULT_WORD_BANK = {
+"Animals": {
+"Easy": ["cat","dog","cow","bat","pig"],
+"Medium": ["rabbit","giraffe","penguin","dolphin"],
+"Hard": ["hippopotamus","chameleon","orangutan","allosaurus"]
+},
+"Fruits": {
+"Easy": ["pear","kiwi","lime"],
+"Medium": ["orange","banana","mango","papaya"],
+"Hard": ["pomegranate","blackberry","dragonfruit"]
+},
+"Sports": {
+"Easy": ["golf","tennis","hockey"],
+"Medium": ["baseball","bowling"],
+"Hard": ["cricket","snowboarding"]
+}
+}
+
+
+DIFFICULTY_SETTINGS = {
+'Easy': {'lives': 8, 'hint_uses': 2},
+'Medium': {'lives': 6, 'hint_uses': 1},
+'Hard': {'lives': 4, 'hint_uses': 0}
+}
+
+
+# ---------- Utilities for file I/O ----------
+
+
+def ensure_wordbank():
+	if not os.path.exists(WORD_BANK_FILE):
+		with open(WORD_BANK_FILE, 'w') as f:
+			json.dump(DEFAULT_WORD_BANK, f, indent=2)
+
+
+
+
+def load_wordbank():
+	ensure_wordbank()
+	with open(WORD_BANK_FILE, 'r') as f:
+		return json.load(f)
+
+
+
+
+def load_highscores():
+	if not os.path.exists(HIGHSCORE_FILE):
+		with open(HIGHSCORE_FILE, 'w') as f:
+			json.dump([], f)
+	with open(HIGHSCORE_FILE, 'r') as f:
+		return json.load(f)
+
+
+
+
+def save_highscore(entry):
+	scores = load_highscores()
+	# Ensure we have a list to append to
+	if not isinstance(scores, list):
+		scores = []
+	scores.append(entry)
+	with open(HIGHSCORE_FILE, 'w') as f:
+		json.dump(scores, f, indent=2)
+
+
+# ---------- Hangman Game Implementation (Tkinter) ----------
+
+
+class HangmanGame(tk.Tk):
+	def __init__(self):
+		super().__init__()
+		self.title('Hangman')
+		self.resizable(False, False)
+
+		# Game state
+		self.word_bank = load_wordbank()
+		self.highscores = load_highscores()
+
+		self.category = tk.StringVar(value=next(iter(self.word_bank)))
+		self.difficulty = tk.StringVar(value='Easy')
+
+		self.secret_word = ''
+		self.display_word = []
+		self.guessed_letters = set()  # set for tracking guessed letters
+		self.wrong_guesses = 0
+		self.lives = DIFFICULTY_SETTINGS['Easy']['lives']
+		self.hint_uses = DIFFICULTY_SETTINGS['Easy']['hint_uses']
+
+		# Drawing stages
+		self.max_stages = 6
+
+		self._build_ui()
+
+	def _build_ui(self):
+		left = tk.Frame(self)
+		left.grid(row=0, column=0, padx=8, pady=8)
+
+		right = tk.Frame(self)
+		right.grid(row=0, column=1, sticky='n', padx=8, pady=8)
+
+		# Canvas for hangman drawing
+		self.canvas = tk.Canvas(left, width=240, height=320, bg='white')
+		self.canvas.pack()
+		self._draw_base()
+
+		# Controls
+		tk.Label(right, text='Category:').grid(row=0, column=0, sticky='w')
+		categories = list(self.word_bank.keys())
+		self.cat_menu = tk.OptionMenu(right, self.category, *categories)
+		self.cat_menu.grid(row=0, column=1, sticky='ew')
+
+		tk.Label(right, text='Difficulty:').grid(row=1, column=0, sticky='w')
+		self.diff_menu = tk.OptionMenu(right, self.difficulty, *DIFFICULTY_SETTINGS.keys())
+		self.diff_menu.grid(row=1, column=1, sticky='ew')
+
+		tk.Button(right, text='Start Game', command=self.start_game).grid(row=2, column=0, columnspan=2, pady=(6, 12), sticky='ew')
+
+		# Word display
+		tk.Label(right, text='Word:').grid(row=3, column=0, sticky='w')
+		self.word_label = tk.Label(right, text='', font=('Consolas', 18))
+		self.word_label.grid(row=3, column=1, sticky='w')
+
+		# Lives & hints
+		self.lives_label = tk.Label(right, text='Lives: 0')
+		self.lives_label.grid(row=4, column=0, sticky='w')
+		self.hint_button = tk.Button(right, text='Hint', command=self.use_hint)
+		self.hint_button.grid(row=4, column=1, sticky='e')
+
+		# Guessed letters
+		tk.Label(right, text='Guessed:').grid(row=5, column=0, sticky='nw')
+		self.guessed_label = tk.Label(right, text='')
+		self.guessed_label.grid(row=5, column=1, sticky='w')
+
+		# On-screen keyboard
+		keys_frame = tk.Frame(right)
+		keys_frame.grid(row=6, column=0, columnspan=2, pady=8)
+		self.letter_buttons = {}
+		letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+		for i, ch in enumerate(letters):
+			btn = tk.Button(keys_frame, text=ch, width=3, command=lambda c=ch: self.guess_letter(c))
+			btn.grid(row=i // 9, column=i % 9, padx=1, pady=1)
+			self.letter_buttons[ch] = btn
+
+		tk.Button(right, text='Add Word...', command=self.add_word_dialog).grid(row=7, column=0, sticky='ew', pady=(8, 0))
+		tk.Button(right, text='View Highscores', command=self.show_highscores).grid(row=7, column=1, sticky='ew', pady=(8, 0))
+
+	# ---------- Word bank edits ----------
+	def add_word_dialog(self):
+		cat = simpledialog.askstring('Add Word', 'Category (existing or new):', parent=self)
+		if not cat:
+			return
+		diff = simpledialog.askstring('Add Word', 'Difficulty (Easy/Medium/Hard):', parent=self)
+		if diff not in DIFFICULTY_SETTINGS:
+			messagebox.showerror('Error', 'Invalid difficulty.')
+			return
+		word = simpledialog.askstring('Add Word', 'Word to add (letters only):', parent=self)
+		if not word or not word.isalpha():
+			messagebox.showerror('Error', 'Invalid word.')
+			return
+		wb = load_wordbank()
+		if cat not in wb:
+			wb[cat] = {'Easy': [], 'Medium': [], 'Hard': []}
+			# update category option menu
+			menu = self.cat_menu['menu']
+			menu.add_command(label=cat, command=lambda v=cat: self.category.set(v))
+		wb[cat].setdefault(diff, []).append(word.lower())
+		with open(WORD_BANK_FILE, 'w') as f:
+			json.dump(wb, f, indent=2)
+		self.word_bank = wb
+		messagebox.showinfo('Added', f'Word "{word}" added to {cat}/{diff}.')
+
+	# ---------- Game flow ----------
+	def start_game(self):
+		cat = self.category.get()
+		diff = self.difficulty.get()
+		words = self.word_bank.get(cat, {}).get(diff, [])
+		if not words:
+			messagebox.showerror('No words', 'No words available for chosen category/difficulty.')
+			return
+		self.secret_word = random.choice(words).lower()
+		self.display_word = ['_' if ch.isalpha() else ch for ch in self.secret_word]
+		self.guessed_letters = set()
+		self.wrong_guesses = 0
+		self.lives = DIFFICULTY_SETTINGS[diff]['lives']
+		self.hint_uses = DIFFICULTY_SETTINGS[diff]['hint_uses']
+		# reset buttons
+		for b in self.letter_buttons.values():
+			b.config(state='normal')
+		self._draw_base()
+		self.update_ui()
+
+	def guess_letter(self, letter):
+		letter = letter.lower()
+		if not self.secret_word:
+			return
+		if letter in self.guessed_letters:
+			return
+		self.guessed_letters.add(letter)
+		# disable button
+		btn = self.letter_buttons.get(letter.upper())
+		if btn:
+			btn.config(state='disabled')
+		if letter in self.secret_word:
+			# reveal positions
+			for i, ch in enumerate(self.secret_word):
+				if ch == letter:
+					self.display_word[i] = letter
+		else:
+			self.wrong_guesses += 1
+			self.lives -= 1
+		self.update_ui()
+
+	def use_hint(self):
+		if not self.secret_word:
+			return
+		if self.hint_uses <= 0:
+			messagebox.showinfo('No Hints', 'No hint uses remaining for this difficulty.')
+			return
+		# select an unrevealed letter
+		unrevealed = [c for c, d in zip(self.secret_word, self.display_word) if d == '_' and c.isalpha()]
+		if not unrevealed:
+			return
+		letter = random.choice(unrevealed)
+		self.hint_uses -= 1
+		# reveal letter (counts as a correct guess)
+		self.guessed_letters.add(letter)
+		for i, ch in enumerate(self.secret_word):
+			if ch == letter:
+				self.display_word[i] = letter
+		# disable button
+		btn = self.letter_buttons.get(letter.upper())
+		if btn:
+			btn.config(state='disabled')
+		self.update_ui()
+
+	def update_ui(self):
+		# update word label
+		spaced = ' '.join(self.display_word)
+		self.word_label.config(text=spaced)
+		self.lives_label.config(text=f'Lives: {self.lives} (Hints: {self.hint_uses})')
+		self.guessed_label.config(text=', '.join(sorted(self.guessed_letters)))
+		self._draw_hangman()
+		# check win/lose
+		if '_' not in self.display_word:
+			self._on_win()
+		elif self.lives <= 0:
+			self._on_loss()
+
+	# ---------- Win/Loss handling and highscores ----------
+	def _on_win(self):
+		score = max(0, self.lives) * 10 + (len([c for c in set(self.secret_word) if c.isalpha()]) )
+		name = simpledialog.askstring('You win!', f'You won! Score: {score}\nEnter name for highscore:', parent=self)
+		if name:
+			entry = {'name': name, 'score': score, 'word': self.secret_word, 'difficulty': self.difficulty.get()}
+			save_highscore(entry)
+		messagebox.showinfo('Win', f'You guessed "{self.secret_word}"!')
+		self.secret_word = ''
+
+	def _on_loss(self):
+		messagebox.showinfo('Lose', f'You lost. The word was "{self.secret_word}".')
+		self.secret_word = ''
+
+	def show_highscores(self):
+		scores = load_highscores()
+		if not scores:
+			messagebox.showinfo('Highscores', 'No highscores yet.')
+			return
+		# sort descending
+		sorted_scores = sorted(scores, key=lambda e: e.get('score', 0), reverse=True)
+		msg = '\n'.join([f"{i+1}. {s.get('name','?')} - {s.get('score',0)} ({s.get('difficulty','?')}) word:{s.get('word','')}" for i, s in enumerate(sorted_scores[:10])])
+		messagebox.showinfo('Highscores', msg)
+
+	# ---------- Drawing helpers ----------
+	def _draw_base(self):
+		c = self.canvas
+		c.delete('all')
+		# base
+		c.create_line(20, 300, 220, 300, width=4)
+		# pole
+		c.create_line(60, 300, 60, 40, width=4)
+		c.create_line(60, 40, 160, 40, width=4)
+		c.create_line(160, 40, 160, 70, width=4)
+
+	def _draw_hangman(self):
+		# draw parts based on wrong_guesses (scale to max_stages)
+		parts = [self._draw_head, self._draw_body, self._draw_left_arm, self._draw_right_arm, self._draw_left_leg, self._draw_right_leg]
+		# clear parts layer
+		self.canvas.delete('parts')
+		stages = min(self.wrong_guesses, self.max_stages)
+		for i in range(stages):
+			parts[i]()
+
+	def _draw_head(self):
+		self.canvas.create_oval(135, 70, 185, 120, width=2, tags='parts')
+
+	def _draw_body(self):
+		self.canvas.create_line(160, 120, 160, 200, width=2, tags='parts')
+
+	def _draw_left_arm(self):
+		self.canvas.create_line(160, 140, 120, 170, width=2, tags='parts')
+
+	def _draw_right_arm(self):
+		self.canvas.create_line(160, 140, 200, 170, width=2, tags='parts')
+
+	def _draw_left_leg(self):
+		self.canvas.create_line(160, 200, 130, 250, width=2, tags='parts')
+
+	def _draw_right_leg(self):
+		self.canvas.create_line(160, 200, 190, 250, width=2, tags='parts')
+
+
+def main():
+	app = HangmanGame()
+	app.mainloop()
+
+
+if __name__ == '__main__':
+	main()
