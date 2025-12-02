@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, filedialog
 
 
-# ---------- Config & Defaults ----------
+# Config & Defaults
 WORD_BANK_FILE = 'wordbank.json'
 HIGHSCORE_FILE = 'highscores.json'
 DEFAULT_WORD_BANK = {
@@ -36,7 +36,7 @@ DIFFICULTY_SETTINGS = {
 }
 
 
-# ---------- Utilities for file I/O ----------
+# Utilities for file I/O 
 
 
 def ensure_wordbank():
@@ -75,7 +75,7 @@ def save_highscore(entry):
 		json.dump(scores, f, indent=2)
 
 
-# ---------- Hangman Game Implementation (Tkinter) ----------
+# Hangman Game Implementation (Tkinter) 
 
 
 class HangmanGame(tk.Tk):
@@ -156,7 +156,7 @@ class HangmanGame(tk.Tk):
 		tk.Button(right, text='Add Word...', command=self.add_word_dialog).grid(row=7, column=0, sticky='ew', pady=(8, 0))
 		tk.Button(right, text='View Highscores', command=self.show_highscores).grid(row=7, column=1, sticky='ew', pady=(8, 0))
 
-	# ---------- Word bank edits ----------
+	#  Word bank edits 
 	def add_word_dialog(self):
 		cat = simpledialog.askstring('Add Word', 'Category (existing or new):', parent=self)
 		if not cat:
@@ -181,7 +181,7 @@ class HangmanGame(tk.Tk):
 		self.word_bank = wb
 		messagebox.showinfo('Added', f'Word "{word}" added to {cat}/{diff}.')
 
-	# ---------- Game flow ----------
+	# Game flow 
 	def start_game(self):
 		cat = self.category.get()
 		diff = self.difficulty.get()
@@ -258,7 +258,7 @@ class HangmanGame(tk.Tk):
 		elif self.lives <= 0:
 			self._on_loss()
 
-	# ---------- Win/Loss handling and highscores ----------
+	#  Win/Loss and highscores 
 	def _on_win(self):
 		score = max(0, self.lives) * 10 + (len([c for c in set(self.secret_word) if c.isalpha()]) )
 		name = simpledialog.askstring('You win!', f'You won! Score: {score}\nEnter name for highscore:', parent=self)
@@ -282,7 +282,7 @@ class HangmanGame(tk.Tk):
 		msg = '\n'.join([f"{i+1}. {s.get('name','?')} - {s.get('score',0)} ({s.get('difficulty','?')}) word:{s.get('word','')}" for i, s in enumerate(sorted_scores[:10])])
 		messagebox.showinfo('Highscores', msg)
 
-	# ---------- Drawing helpers ----------
+	#  Drawing helpers 
 	def _draw_base(self):
 		c = self.canvas
 		c.delete('all')
